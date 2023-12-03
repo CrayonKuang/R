@@ -1,0 +1,468 @@
+---
+title: 'ECON245 Project'
+output: html_notebook
+---
+
+# 0. Import libraries 
+```{r}
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(tidyr)
+library(glmnet)
+library(caret)
+library(ROSE)
+library(pROC)
+library(pscl)
+library(vcd)
+```
+
+# 1. Import data 
+```{r}
+data <- read.csv('http://mysmu.edu/faculty/denisleung/101/lun_smk_naga.csv')
+```
+
+# 1.1 View data 
+```{r}
+head(data)
+str(data)
+```
+
+# 2. Clean data
+
+## 2.1 Check for null and infinite values
+```{r}
+data%>%summarise_all(~sum(is.na(.))) # no null values 
+data%>%summarise_all(~sum(is.infinite(.))) # no infinite values 
+```
+
+## 2.2 Check for multicollinearity among categorical variables
+```{r}
+library(corrplot)
+matrix_corr = cor(data) # only find correlations among covariates
+corrplot(matrix_corr, method="number", type="upper") # upper diagonal matrix in numbers
+```
+# Remove numerical variables
+```{r}
+df <- data[,-c(1,2,14,16,17,18,19,23,24,25,26,27)]
+```
+# 2.3 EDA
+
+## 2.3 Convert categorical variables into factors
+```{r}
+df[c('sex', 'un4gy', 'distcat', 'agxcat', 'agecat', 'time', 'dcat', 'scat', 'smkcat', 'smkyrcat', 'smkqyrcat', 'nic')] = lapply(df[c('sex','un4gy', 'distcat', 'agxcat', 'agecat', 'time', 'dcat', 'scat', 'smkcat', 'smkyrcat', 'smkqyrcat', 'nic')],factor)
+
+str(df) # check data
+```
+
+
+### Original categories of 'dcat'
+```{r}
+ggplot(data = df, aes(x = dcat)) + geom_bar() + labs(title = 'Distribution of weighted lung dose', x = 'dcat', y = 'count')
+```
+
+### Recode categories of 'dcat'
+```{r}
+dcat_sort <- function(x) {
+  x <- as.numeric(as.character(x))
+  if (x >= 9) {
+    return('>= 100 mgy')
+  } else if (x >= 4) {
+    return('5-100 mgy')
+  } else {
+    return('0-5 mgy')
+  }
+}
+
+dcat_order <- c('0-5 mgy', '5-100 mgy', '>= 100 mgy')
+
+df$dcat <- sapply(df$dcat, dcat_sort)
+
+df$dcat <- factor(df$dcat, levels = dcat_order)
+
+ggplot(data = df, aes(x = dcat)) + geom_bar() + labs(title = 'Distribution of weighted lung dose', x = 'dcat', y = 'count')
+```
+##  Recode 'agxcat'
+
+###  Original categories of 'agxcat'
+```{r}
+ggplot(data = df, aes(x = agxcat)) + geom_bar() + labs(title = 'Distribution of age at exposure', x = 'agxcat', y = 'count')
+```
+
+###  Recode categories of 'agxcat'
+```{r}
+agxcat_sort <- function(x) {
+  x <- as.numeric(as.character(x))
+  if (x >= 11) {
+    return('Elderly')
+  } else if (x >= 5) {
+    return('Adult')
+  } else if (x >= 3) {
+    return('Teenager') 
+  } else {
+    return('Child')
+  }
+}
+
+agxcat_order <- c('Child', 'Teenager', 'Adult', 'Elderly')
+
+df$agxcat <- sapply(df$agxcat, agxcat_sort)
+63
+96
+
+df$agxcat <- factor(df$agxcat, levels = agxcat_order)
+
+ggplot(data = df, aes(x = agxcat)) + geom_bar() + labs(title = 'Distribution of age at exposure', x = 'agxcat', y = 'count')
+```
+## Recode 'agecat'
+
+### Original categories of 'agecat'
+```{r}
+ggplot(data = df, aes(x = agecat)) + geom_bar() + labs(title = 'Distribution of attained age', x = 'agecat', y = 'count')
+```
+### Recode categories of 'agecat'
+```{r}
+agecat_sort <- function(x) {
+  x <- as.numeric(as.character(x))
+  if (x >= 15) {
+    return('>=70')
+  } else if (x >= 13) {
+    return('60-70')
+  } else if (x >= 11) {
+    return('50-60') 
+  } else if (x >= 9){
+    return('40-50')
+  } else {
+    return('<=40')
+  }
+}
+
+agecat_order <- c('<=40', '40-50', '50-60', '60-70', '>=70')
+
+df$agecat <- sapply(df$agecat, agecat_sort)
+
+df$agecat <- factor(df$agecat, levels = agecat_order)
+
+ggplot(data = df, aes(x = agecat)) + geom_bar() + labs(title = 'Distribution of attained age', x = 'agecat', y = 'count')
+```
+
+## Recode 'smkcat'
+
+### Original categories of 'smkcat'
+```{r}
+ggplot(data = df, aes(x = smkcat)) + geom_bar() + labs(title = 'Distribution of smkcat', x = 'smkcat', y = 'count')
+```
+
+
+### Recode categories of 'smkcat's
+```{r}
+smkcat_sort <- function(x) {
+  x <- as.numeric(as.character(x))
+  if (x >= 7) {
+    return('Heavy Smokers')
+  } else if (x >= 5) {
+    return('Moderate Smokers')
+  } else if (x >= 3) {
+    return('Light Smokers') 
+  } else if (x == 2){
+    return('Non-Smokers')
+  } else {
+    return('Unknown')
+  }
+}
+
+smkcat_order <- c('Unknown', 'Non-Smokers', 'Light Smokers', 'Moderate Smokers', 'Heavy Smokers')
+
+df$smkcat <- sapply(df$smkcat, smkcat_sort)
+
+df$smkcat <- factor(df$smkcat, levels = smkcat_order)
+
+ggplot(data = df, aes(x = smkcat)) + geom_bar() + labs(title = 'Distribution of smkcat', x = 'smkcat', y = 'count')
+```
+
+## Aggregate all cancer variables into a single 'cancer' variable
+```{r}
+df <- df %>% mutate(cancer = lung + larynx + othresp)
+summary(df$cancer)
+```
+# Remove 'lung', 'larynx', 'othresp' columns
+```{r}
+df <- df[,-c(13,14,15)]
+str(df)
+```
+
+## 3 Identifying Statistically Significant Cancer Risk Factors
+```{r}
+# count
+table(df$cancer)
+
+# proportion of non-cancer vs cancer cases 
+df %>%
+  group_by(cancer) %>%
+  summarise(cnt = n()) %>%
+  ungroup() %>%
+  mutate(proportion = cnt / sum(cnt)) %>%
+  ggplot(aes(x = factor(cancer), y = proportion, fill = factor(cancer))) +
+  geom_bar(stat = 'identity') +
+  geom_text(aes(label = scales::percent(proportion), y = proportion + 0.01), vjust = -0.5) +
+  ggtitle('Proportion of Cancer Counts') +
+  xlab('Cancer Status') +
+  ylab('Proportion')
+```
+
+## 5.3 Proportion of 'cancer' counts by 'sex'
+```{r}
+df %>%
+  group_by(cancer, sex) %>%
+  summarise(cnt = n()) %>%
+  ungroup() %>%
+  mutate(proportion = cnt / sum(cnt)) %>%
+  
+ggplot(aes(x = factor(cancer), y = proportion, fill = sex)) +
+  geom_bar(position = 'stack', stat = 'identity') +
+  geom_text(aes(label = scales::percent(proportion), y = proportion + 0.01), vjust = -0.5) +
+  labs(x = 'Cancer', y = 'Number of Cases', title = 'Stacked Bar Plot of Cancer Cases by Sex')
+```
+
+
+## 5.4 Distribution of 'cancer' over 'time'
+```{r}
+df%>%
+  group_by(time, cancer)%>%
+  summarise(cnt=n(), .groups='drop')%>%
+  filter(cancer == 1)%>%
+  ggplot(aes(x=time, y = cnt)) + geom_bar(stat='identity') + ggtitle('Distribution of Cancer Cases over Time')
+```
+# 3.1 Chi Squared test
+## 3.1.1 Smoking (scat) chi-squared test
+Since the p-value is < 2.2e-16 < 0.05, there is sufficient evidence to reject the null hypothesis. Therefore, there is a significant relationship between smoking status and cancer occurrence.
+```{r}
+table(df$cancer, df$scat)
+
+# Visualise the proportion of each category 
+mosaic(~ cancer + scat,
+  direction = c("v", "h"),
+  data = df,
+  shade = TRUE
+)
+
+# Conduct chi-sq test 
+scat_test <- chisq.test(table(df$cancer, df$scat))
+scat_test
+```
+## 3.1.1 Two-sample Poisson test on the number of cancer cases, stratified by smoking status (scat)
+
+# Two-pop Poisson for Smokers and Non-smokers
+```{r}
+# Get population that smokes vs those who do not 
+no_smoke_df = filter(df, scat %in% c(2, 3))
+smoke_df = filter(df, scat==4)
+
+# two-sample poisson test
+poisson.test(c(sum(no_smoke_df$cancer), sum(smoke_df$cancer)), c(nrow(no_smoke_df), nrow(smoke_df)),
+alternative = "less", conf.level = 0.95)
+
+c(sum(no_smoke_df$cancer))/nrow(no_smoke_df)
+c(sum(smoke_df$cancer))/nrow(smoke_df)
+```
+
+## 3.1.2 Radiation (dcat) chi-squared test
+
+```{r}
+# Contingency table between cancer and dcat
+table(df$cancer, df$dcat)
+
+# Visualise the proportion of each category 
+mosaic(~ cancer + dcat,
+  direction = c("v", "h"),
+  data = df,
+  shade = TRUE
+)
+
+# Conduct chi-sq test 
+dcat_test <- chisq.test(table(df$cancer, df$dcat))
+dcat_test
+```
+## 3.1.3 Sex (sex) chi-squared test
+
+```{r}
+# Contingency table between cancer and sex
+table(df$cancer, df$sex)
+
+# Visualise the proportion of each category 
+mosaic(~ cancer + sex,
+  direction = c("v", "h"),
+  data = df,
+  shade = TRUE
+)
+
+# Conduct chi-sq test 
+sex_test <- chisq.test(table(df$cancer, df$sex))
+sex_test
+```
+# Two-pop Poisson for Male and Female
+```{r}
+# Get population of males and females
+male_df = filter(df, sex==1)
+female_df = filter(df, sex==2)
+
+# two-sample poisson test
+poisson.test(c(sum(male_df$cancer), sum(female_df$cancer)), c(nrow(male_df), nrow(female_df)),
+alternative = "greater", conf.level = 0.95)
+
+c(sum(male_df$cancer))/nrow(male_df)
+c(sum(female_df$cancer))/nrow(female_df)
+```
+
+## 3.1.4 Age at exposure (agxcat) chi-squared test
+  
+```{r}
+# Contingency table between cancer and agxcat
+table(df$cancer, df$agxcat)
+
+# Visualise the proportion of each category 
+mosaic(~ cancer + agxcat,
+  direction = c("v", "h"),
+  data = df,
+  shade = TRUE
+)
+
+# Conduct chi-sq test 
+agxcat_test <- chisq.test(table(df$cancer, df$agxcat))
+agxcat_test
+```
+# Two sample poisson test to compare the mean between each age group of exposure
+```{r}
+elderly_df <- filter(df, agxcat=="Elderly")
+adult_df <- filter(df, agxcat=="Adult")
+teenager_df <- filter(df, agxcat=="Teenager")
+child_df <- filter(df, agxcat=="Child")
+
+# child vs adult
+poisson.test(c(sum(child_df$cancer), sum(adult_df$cancer)), c(nrow(child_df), nrow(adult_df)),
+alternative = "less", conf.level = 0.95)
+
+# teenager vs adult 
+poisson.test(c(sum(teenager_df$cancer), sum(adult_df$cancer)), c(nrow(teenager_df), nrow(adult_df)),
+alternative = "less", conf.level = 0.95)
+
+# adult vs elderly 
+poisson.test(c(sum(adult_df$cancer), sum(elderly_df$cancer)), c(nrow(adult_df), nrow(elderly_df)),
+alternative = "less", conf.level = 0.95)
+```
+# 3.1.5 Not in city (NIC) chi-squared test
+```{r}
+# Visualise the proportion of each category 
+mosaic(~ cancer + nic,
+  direction = c("v", "h"),
+  data = df,
+  shade = TRUE
+)
+
+# Conduct chi-sq test 
+nic_test <- chisq.test(table(df$cancer, df$nic))
+nic_test
+```
+# Two-pop Poisson for NIC
+```{r}
+# Get population that smokes vs those who do not 
+nic_df = filter(df, nic==1) #not in the city at time of bombing
+ic_df = filter(df, nic==0) #in the city at time of bombing
+
+# two-sample poisson test
+poisson.test(c(sum(nic_df$cancer), sum(ic_df$cancer)), c(nrow(nic_df), nrow(ic_df)),
+alternative = "less", conf.level = 0.95)
+
+c(sum(nic_df$cancer))/nrow(nic_df)
+c(sum(ic_df$cancer))/nrow(ic_df)
+```
+## 3.2 Stepwise regression (backward elimination)
+```{r}
+df_stepwise <- read.csv("http://mysmu.edu/faculty/denisleung/101/lun_smk_naga.csv")
+
+# running only numerical variables 
+dfstepwise <- df_stepwise %>% dplyr :: select(-c(X, city, gdist, agex, age, nic, year, d10lun, smkamt, smkyrs, smkqyrs, pyr, upyr))
+
+# adding cancer variables 
+dfstepwise <- dfstepwise %>% mutate(cancer = lung + larynx + othresp) %>% dplyr::select(-c(lung, larynx, othresp))
+
+# define model with all predictors
+all <- glm(cancer ~ sex+un4gy+distcat+agxcat+agecat+time+dcat+scat+smkcat+smkyrcat+smkqyrcat+subjects+offset(log(pyr92)), data=dfstepwise, family='poisson')
+
+# perform backward stepwise regression
+backward <- step(all, direction='backward', scope=formula(all), trace=0)
+
+# view results of backward stepwise regression
+backward$anova
+
+# view final model to see significant variables 
+backward$coefficients
+```
+# 4. Models
+
+# 4.1 Poisson Regression
+# Model 1
+```{r}
+out1 = glm(cancer~sex+agecat+time+dcat+scat+offset(log(pyr92)), family='poisson', data=df)
+summary(out1)
+``` 
+# Model 2
+```{r}
+out2 = glm(cancer~sex+agecat+time+dcat+scat+scat:dcat+offset(log(pyr92)), family='poisson', data=df)
+summary(out2)
+``` 
+# Model 3
+```{r}
+out3 = glm(cancer~sex+agecat+time+dcat+scat+sex:dcat+offset(log(pyr92)), family='poisson', data=df)
+summary(out3)
+``` 
+# Model 4
+```{r}
+out4 = glm(cancer~sex+agecat+time+dcat+scat+agecat:dcat+offset(log(pyr92)), family='poisson', data=df)
+summary(out4)
+``` 
+# Model 5
+```{r}
+out5 = glm(cancer~sex+agecat+time+dcat+scat+time:dcat+offset(log(pyr92)), family='poisson', data=df)
+summary(out5)
+``` 
+# Model 6
+```{r}
+out6 = glm(cancer~sex+agecat+time+dcat+scat+agecat:sex+offset(log(pyr92)), family='poisson', data=df)
+summary(out6)
+``` 
+# 4.2 Hurdle Regression
+
+# Model 7
+```{r}
+out7 = hurdle(cancer~sex+dcat+scat+agecat+time+offset(log(pyr92)), data=df)
+summary(out7)
+``` 
+
+# 4.3 Zero inflated Regression
+
+# Model 8
+```{r}
+out8 = zeroinfl(cancer~sex+dcat+scat+agecat+time+offset(log(pyr92)), data=df, dist='poisson', link = 'logit')
+summary(out8)
+``` 
+# 4.4 Logistic Regression
+
+# Model 9
+```{r}
+df <- df %>%
+  mutate(cancer_binary = ifelse(cancer > 0, 1, 0))
+out9 = glm(cancer_binary~sex+dcat+scat+agecat+time, data=df, family='binomial')
+summary(out9)
+``` 
+# 5 Results
+# 5.2 AIC and BIC scores
+```{r}
+AIC(out1, out2, out3, out4, out5, out6, out7, out8, out9)
+```
+```{r}
+BIC(out1, out2, out3, out4, out5, out6, out7, out8, out9)
+```
+
+
+
